@@ -1,0 +1,218 @@
+---
+title: 'Ass 5: Dimension Reduction'
+author: "Chloe Hall"
+date: "2022-11-03"
+output:
+  html_document: default
+  pdf_document: default
+---
+# Dimension Reduction
+
+## Research Question
+
+What are the most relevant predictive variable categories for housing price in Nashville?
+
+## Data
+The data used in this analysis is the Nashville Housing data set which comprises the home value data of properties sold in Nashville from 2013-16. The data set contains information about the different properties included in the reported housing sale including: land use, property address, sale date, sale price, whether the property was sold as vacant or part of a parcel, tax district, neighborhood, land value, building value, total value, foundation type, year built, number of bedrooms, and finished area for each of 56,000 parcel ids sold in Nashville from 2013-16. 
+
+I will be using the variables Finished Area, Land Value, Total Value, Acreage, Bedrooms, Full Bath & Half Bath in order in the beginning and then seeing what variables this could simply down to.  
+
+The data used in this assignment is available at https://www.kaggle.com/datasets/tmthyjames/nashville-housing-data
+
+## Data Wrangling
+In order to organize the data successfully the following steps were completed. 
+1. Called in the dataframe 
+2. Filtered the dataframe to the variables I would be using in the regression.
+(add the real steps!!)
+
+### Read and wrangle data.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r calling in the data}
+#Loading the necessary libraries 
+library(tidyverse)
+
+#importing the data set & Filtering to relevant variables and filtering out NAs
+nash <- read_csv('~/Downloads/DS 3000/Assignments/Nashville_housing_data_2013_2016.csv')%>% 
+  na_if("") %>% #convert empty cells to NA
+  dplyr::select(`Sale Price`, `Acreage`, `Finished Area`, `Land Value`, `Building Value`, `Total Value`, Bedrooms, `Full Bath`, `Half Bath`) %>% 
+  na.omit() #we lose about 1/2 of the data here.
+```
+
+## The PCA
+
+### Checking for multicollinearity (r > .899)
+```{r}
+str(nash)
+
+nash_tib_cor <- nash[,2:9]
+
+corr_nash <- cor(nash_tib_cor)
+
+corr_nash
+```
+Building Value and Total Value have a 0.9537241 correlation so we will need to remove the less predictive option 
+
+```{r}
+cor(nash) #This shows building value is the less predictive option on the sale price so it will be removed
+
+nash_tib <- nash[,c(2:4,6:9)]
+```
+
+### Scaling all the variables 
+```{r}
+library(psych)
+
+scaled_data_pca <- nash_tib %>% 
+  mutate_at(c(1:7), ~(scale(.) %>% as.vector))
+
+str(scaled_data_pca)
+```
+
+```{r}
+psych::describe(scaled_data_pca) 
+```
+
+## Visualizing the PCA
+```{r}
+library(factoextra) #extract and visualize the output of multivariate data analyses, including 'PCA'
+
+viz_pca <- prcomp(scaled_data_pca, center = TRUE,scale. = TRUE)
+
+summary(viz_pca) #show the proportion of variance explained by all possible components along with cumulative variance
+```
+
+```{r}
+viz_pca$rotation #show the loadings for each component by variable
+```
+
+```{r}
+#Graph of observations
+fviz_pca_ind(viz_pca,
+             c = "point", #point
+             col.ind = "cos2", # Color by the quality of representation, 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), #color gradient
+             repel = FALSE     # Avoid overlapping numbers, which is not important, so set as false
+             )
+```
+This is an interesting distribution because it shows the shape is not a circle but has many extreme outliers in one quadrant of the graph.
+
+```{r}
+#Graph of variables. Positive correlated variables point to the same side of the plot. Negative correlated variables point to opposite sides of the graph.
+fviz_pca_var(viz_pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE #Avoid overlapping text if possible 
+             )
+```
+
+```{r}
+#Biplot together.
+fviz_pca_biplot(viz_pca, repel = FALSE, #Had to turn off repel or else I got the error "ggrepel: 24002 unlabeled data points (too many overlaps). Consider increasing max.overlaps"
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )
+```
+This seems to indicate that acreage is the predictor variable that results in such extreme outliers. 
+
+## Bartlett’s test including sample size
+```{r}
+cortest.bartlett(scaled_data_pca, 24014)
+```
+
+## KMO on the data (look for variables below .5 and remove)
+```{r}
+KMO(scaled_data_pca)
+```
+All are above .5 so nothing to remove!
+
+## Baseline PCA to check scree plot, SS loadings above 1, and normal distribution of variables
+```{r}
+pca_base <- principal(scaled_data_pca, nfactors = 7, rotate = "none")
+
+pca_base #results
+```
+
+```{r}
+#scree plot using eigen values stored in pca_1$values
+plot(pca_base$values, type = "b")
+```
+Let's pick four!
+
+## Check that residuals are normally distributed
+```{r}
+pca_resid <- principal(scaled_data_pca, nfactors = 4, rotate = "none")
+pca_resid #results. 4 looks good
+```
+
+```{r}
+#residuals
+#require correlation matrix for final data
+corMatrix<-cor(scaled_data_pca)
+#corMatrix
+
+#next,create an object from the correlation matrix and the pca loading.
+residuals<-factor.residuals(corMatrix, pca_resid$loadings)
+
+#call a histogram to check residuals
+hist(residuals) #are the residuals normally distributed? Yes!
+```
+
+
+## PCA with selected number of components based on interpretation of scree plot and SS loadings
+```{r}
+#rotation. Since factors should be related, use oblique technique (promax), if unrelated, use varimax
+pca_final <- principal(scaled_data_pca, nfactors = 4, rotate = "promax")
+pca_final #results. 
+```
+
+```{r}
+#let's make the results easier to read. Include loadings over 3 and sort them
+
+print.psych(pca_final, cut = 0.3, sort = TRUE)
+```
+
+```{r}
+plot(pca_final)
+```
+
+```{r}
+fa.diagram(pca_final)
+```
+
+## Collect Factor Scores for CSV
+```{r}
+#we need the pca scores
+pca_final_scores <- as.data.frame(pca_final$scores)
+```
+
+## Rename the variables
+```{r}
+pca_final_scores<- pca_final_scores %>% 
+  rename(`Home Value` = RC1,
+         `Half Bath` = RC2,
+         `Acreage` = RC3,
+         `Rooms` = RC4)
+
+write.csv(pca_final_scores,"pca_scores_nsah.csv", row.names=FALSE)
+```
+
+## Discussion
+
+My Principle Component Analysis was already limited because I only started with 8 variables, where it would have been more robust with more input variables. There was not a high dimensional space to begin with but this did help simplify some of the variables that are measuring very similar metrics. 
+
+First, we had to check for multicollinearity that was too high to be included in the PCA and I had to remove building value since it was a .9 correlation with total value and less predictive on sales price as a whole. This did reduce the total number of numeric variables we had to work with to seven, which made it an even smaller PCA, but these still hold lots of explanatory power. 
+
+Next, I did not need to scale any variables since everything was measured in the same unit of feet or acres so they are comparable.
+
+Next, my visualizations showed that my data set had a very large skew to the fourth quadrant and all of my variables are pointing in the positive direction. The visualizations were already showing some early explanations of the grouping of the variables, which also made intuitive sense since they were variables measuring similar features of the house. I had to turn off the repel feature which would have made sure my labels did not overlap too much on the graph because there was just so many points, but the bi-plot showed a good visual of why the graph was so skewed, which is because all the variables were in the positive direction for dimension 1 and the variables like acreage seem to hold more weight since they have such big outliers in that direction. 
+
+My point of inflection showed that four would be a good number of factors, even if that meant two of my factors were singular variables. I even tested this threshold by rerunning my PCA with three factors and found that it performed much worse and decreased predictability, so I kept it at four factors as my point of inflection based on my scree plot. My residuals were still normally distributed and much more normally distributed with four factors compared to three. 
+
+Then I made my four factors and renamed them according to their common theme. The RC1 factor I named Home Value since it was composed of Land Value, Total Value, and Finished Area. It makes sense these would be grouped together since these are all related to the value of the house, but it is surprising that acreage was different enough to Finished Area to be its own factor and not linked. It seems like the property area of the house is its own function and then the finished area of the building is related to the value. This explains about .37 of proportional variance.
+
+The RC2 factor is named Half Bath and the RC3 factor is named Acreage because those are the only variables in the factor somewhat due to the small amount of variables to begin with and also due to the variables predictive value. It is interesting that half bath is separate from full bath but I have seen similar results in all my regression results this semester, so I knew that was a correct assumption and it shows the added value of half baths to a house, which makes sense that full baths are almost a given based on bedroom size but half baths are considered a real addition to the home that would affect price. RC2 explains about .15 of proportional variance and RC3 explains .14 of proportional variance. 
+
+The RC4 factor is named Rooms since it contains bedrooms and full bath which shows how related bedrooms and full bathrooms are in a property. RC4 explains .24 of proportional variance.
